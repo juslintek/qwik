@@ -1,11 +1,12 @@
-import { Project, ts } from 'ts-morph';
 import { visitNotIgnoredFiles } from './tools/visit-not-ignored-files';
 import { log } from '@clack/prompts';
 
-export function replaceImportInFiles(
+export async function replaceImportInFiles(
   changes: [oldImport: string, newImport: string][],
   library: string
 ) {
+  const { Project, ts } = await import('ts-morph');
+
   const project = new Project();
 
   visitNotIgnoredFiles('.', (path) => {
