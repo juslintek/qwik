@@ -1,8 +1,10 @@
+import { RequestEvShareQData } from '@qwik-router-ssg-worker/middleware/request-handler/request-event-core';
+import { trimInternalPathname } from '@qwik-router-ssg-worker/middleware/request-handler/request-path';
+import { _serialize as serialize } from '@qwik.dev/core/internal';
 import { parentPort } from 'node:worker_threads';
-// Use the global WritableStream, not node:stream/web — in worker threads they can be
-// different classes, causing instanceof checks in pipeTo/TransformStream to fail.
-import type { ClientPageData } from '../runtime/src/types';
 import type { ServerRequestEvent } from '../middleware/request-handler/types';
+import type { ClientPageData } from '../runtime/src/types';
+import { renderQwikMiddleware, resolveRequestHandlers } from './resolve-request-handlers-ssg';
 import type {
   SsgHandlerOptions,
   SsgRoute,
@@ -12,11 +14,8 @@ import type {
   WorkerInputMessage,
   WorkerOutputMessage,
 } from './types';
-import { renderQwikMiddleware, resolveRequestHandlers } from './resolve-request-handlers-ssg';
 import { runQwikRouter } from './user-response-ssg';
 import { loadRoute } from './worker-imports/runtime';
-import { RequestEvShareQData } from '@qwik-router-ssg-worker/middleware/request-handler/request-event-core';
-import { trimInternalPathname } from '@qwik-router-ssg-worker/middleware/request-handler/request-path';
 
 interface StaticWorkerThreadDeps {
   RequestEvShareQData: string;
@@ -28,7 +27,7 @@ interface StaticWorkerThreadDeps {
 }
 
 interface WorkerThreadDeps extends StaticWorkerThreadDeps {
-  serialize: typeof import('@qwik.dev/core/internal')._serialize;
+  serialize: typeof serialize;
 }
 
 const staticWorkerThreadDeps: StaticWorkerThreadDeps = {
@@ -48,7 +47,7 @@ export async function workerThread(sys: System) {
   const pendingPromises = new Set<Promise<any>>();
   const deps: WorkerThreadDeps = {
     ...staticWorkerThreadDeps,
-    serialize: await loadSerialize(),
+    serialize,
   };
 
   // Prevent unhandled errors/rejections from crashing the worker thread.
@@ -361,12 +360,6 @@ async function workerRender(
 
 /** Create a fresh no-op WritableStream (must be a real instance for pipeTo checks). */
 const createNoopWritableStream = () => new WritableStream();
-
-async function loadSerialize(): Promise<typeof import('@qwik.dev/core/internal')._serialize> {
-  // Import qwik after resetting the global singleton so the worker gets a fresh serializer instance.
-  const { _serialize: serialize } = await import('@qwik.dev/core/internal');
-  return serialize;
-}
 
 function isRedirectMessage(value: unknown) {
   return (
