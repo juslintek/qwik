@@ -6,8 +6,7 @@ import {
   type _Container,
   type SerializationStrategy,
 } from '@qwik.dev/core/internal';
-import { QACTION_KEY, QLOADER_KEY } from './constants';
-import { loadClientData } from './use-endpoint';
+import { fetchLoader } from './use-endpoint';
 
 /** Gets an absolute url path string (url.pathname + url.search + url.hash) */
 export const toPath = (url: URL) => url.pathname + url.search + url.hash;
@@ -34,26 +33,6 @@ export const isSamePath = (a: SimpleURL, b: SimpleURL) =>
 /** Same origin, but different pathname (doesn't include search and hash) */
 export const isSameOriginDifferentPathname = (a: SimpleURL, b: SimpleURL) =>
   isSameOrigin(a, b) && !isSamePath(a, b);
-
-export const getClientDataPath = (
-  pathname: string,
-  pageSearch?: string,
-  options?: {
-    actionId?: string;
-    loaderIds?: string[];
-  }
-) => {
-  let search = pageSearch ?? '';
-  if (options?.actionId) {
-    search += (search ? '&' : '?') + QACTION_KEY + '=' + encodeURIComponent(options.actionId);
-  }
-  if (options?.loaderIds) {
-    for (const loaderId of options.loaderIds) {
-      search += (search ? '&' : '?') + QLOADER_KEY + '=' + encodeURIComponent(loaderId);
-    }
-  }
-  return pathname + (pathname.endsWith('/') ? '' : '/') + 'q-data.json' + search;
-};
 
 export const getClientNavPath = (props: Record<string, any>, baseUrl: { url: URL }) => {
   const href = props.href;
@@ -93,21 +72,28 @@ export const createLoaderSignal = (
   loaderId: string,
   url: URL,
   serializationStrategy: SerializationStrategy,
-  container?: _Container
+  manifestHash: string | undefined,
+  container?: _Container,
+  /**
+   * AsyncSignal interval for staleness/polling. Positive = poll (auto-refetch), negative =
+   * stale-only, 0 = none.
+   */
+  interval?: number
 ) => {
   return createAsync$(
     async () => {
       if (isBrowser && loadersObject[loaderId] === _UNINITIALIZED) {
-        const data = await loadClientData(url, {
-          loaderIds: [loaderId],
-        });
-        loadersObject[loaderId] = data?.loaders[loaderId] ?? _UNINITIALIZED;
+        if (manifestHash) {
+          const data = await fetchLoader(loaderId, url.pathname, manifestHash);
+          loadersObject[loaderId] = data ?? _UNINITIALIZED;
+        }
       }
       return loadersObject[loaderId];
     },
     {
       container: container as _Container,
       serializationStrategy,
+      interval,
     }
   );
 };

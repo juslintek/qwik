@@ -1,9 +1,9 @@
-import type { ClientPageData } from './types';
 import type { SerializationStrategy } from '@qwik.dev/core/internal';
 
 export const MODULE_CACHE = /*#__PURE__*/ new WeakMap<any, any>();
 
-export const CLIENT_DATA_CACHE = new Map<string, Promise<ClientPageData | undefined>>();
+/** Per-loader data cache for individual loader fetch deduplication */
+export const LOADER_CACHE = new Map<string, Promise<unknown>>();
 
 export const QACTION_KEY = 'qaction';
 

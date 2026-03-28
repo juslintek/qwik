@@ -276,8 +276,6 @@ export type EndpointModuleLoader = () => ValueOrPromise<RouteModule>;
 export type ModuleLoader = ContentModuleLoader | EndpointModuleLoader; //| RouteLoaderLoader;
 export type MenuModuleLoader = () => Promise<MenuModule>;
 
-export type RouteLoaderInfo = [qrl: string, expires: number, live?: true];
-
 /**
  * A nested route trie structure. The root represents `/` and each level represents a URL segment.
  *
@@ -430,8 +428,6 @@ export interface EndpointResponse {
 
 export interface ClientPageData extends Omit<EndpointResponse, 'loadersSerializationStrategy'> {
   href: string;
-  redirect?: string;
-  isRewrite?: boolean;
 }
 
 export interface LoaderData {
@@ -769,6 +765,20 @@ export type LoaderOptions = {
   readonly id?: string;
   readonly validation?: DataValidator[];
   readonly serializationStrategy?: SerializationStrategy;
+  /**
+   * Time in seconds after which the loader data is considered stale. The server sets
+   * `Cache-Control: max-age={expires}` on loader responses.
+   *
+   * On the client, the loader's AsyncSignal `interval` is set to `expires * 1000` ms. If `poll` is
+   * true, the signal auto-refetches when expired. If `poll` is false (default), the data is marked
+   * stale but not auto-refetched.
+   */
+  readonly expires?: number;
+  /**
+   * When true AND `expires` is set, the loader data is automatically refetched when it expires
+   * (polling behavior). When false (default), expired data is marked stale but not auto-refetched.
+   */
+  readonly poll?: boolean;
 };
 
 /** @public */
@@ -915,7 +925,7 @@ export interface LoaderInternal extends Loader<any> {
   __validators: DataValidator[] | undefined;
   __serializationStrategy: SerializationStrategy;
   __expires: number;
-  // __live: boolean;
+  __poll: boolean;
   (): LoaderSignal<unknown>;
 }
 

@@ -167,39 +167,5 @@ test.describe('loaders', () => {
         await expect(page.locator('#prop6')).toHaveText('should not serialize this nested');
       }
     });
-
-    test('should retry with all loaders if one fails', async ({ page, javaScriptEnabled }) => {
-      let loadersRequestCount = 0;
-      let allLoadersRequestCount = 0;
-      page.on('request', (request) => {
-        if (request.url().includes('q-data.json?qloaders')) {
-          loadersRequestCount++;
-        }
-        if (request.url().endsWith('q-data.json')) {
-          allLoadersRequestCount++;
-        }
-      });
-
-      await page.route(
-        '*/**/qwikrouter-test/loaders-serialization/q-data.json?qloaders=*',
-        async (route) => {
-          await route.fulfill({ status: 404 });
-        }
-      );
-      await page.goto('/qwikrouter-test/loaders-serialization/');
-
-      if (javaScriptEnabled) {
-        await page.locator('#toggle-child').click();
-        await page.waitForLoadState('networkidle');
-        expect(loadersRequestCount).toBe(2);
-        expect(allLoadersRequestCount).toBe(1);
-        await expect(page.locator('#prop1')).toHaveText('some test value');
-        await expect(page.locator('#prop2')).toHaveText('should not serialize this');
-        await expect(page.locator('#prop3')).toHaveText('some eager test value');
-        await expect(page.locator('#prop4')).toHaveText('should serialize this');
-        await expect(page.locator('#prop5')).toHaveText('some test value nested');
-        await expect(page.locator('#prop6')).toHaveText('should not serialize this nested');
-      }
-    });
   }
 });

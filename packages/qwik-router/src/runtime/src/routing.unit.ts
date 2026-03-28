@@ -616,20 +616,6 @@ test('loadRoute — _N in _M group is picked up', async () => {
   assert.deepEqual(result.$menu$, { text: 'Group Menu' });
 });
 
-test('loadRoute — _N not loaded for internal requests', async () => {
-  const menuLoader: MenuModuleLoader = async () => ({ default: { text: 'Docs' } });
-  const pageLoader = makeLoader();
-  const routes: RouteData = {
-    _N: menuLoader,
-    blog: {
-      _I: pageLoader,
-    },
-  };
-  const result = await loadRoute(routes, false, '/blog', true /* isInternal */);
-  assert.isFalse(result.$notFound$);
-  assert.isUndefined(result.$menu$);
-});
-
 // ─── Empty node tests ─────────────────────────────────────────────────────────
 
 test('loadRoute — empty object leaf node is a 404 (no false match)', async () => {

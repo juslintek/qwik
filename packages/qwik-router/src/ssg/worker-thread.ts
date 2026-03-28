@@ -16,14 +16,14 @@ import { renderQwikMiddleware, resolveRequestHandlers } from './resolve-request-
 import { runQwikRouter } from './user-response-ssg';
 import { loadRoute } from './worker-imports/runtime';
 import { RequestEvShareQData } from '@qwik-router-ssg-worker/middleware/request-handler/request-event-core';
-import { getRouteMatchPathname } from '@qwik-router-ssg-worker/middleware/request-handler/request-path';
+import { trimInternalPathname } from '@qwik-router-ssg-worker/middleware/request-handler/request-path';
 
 interface StaticWorkerThreadDeps {
   RequestEvShareQData: string;
   loadRoute: typeof loadRoute;
   renderQwikMiddleware: typeof renderQwikMiddleware;
   resolveRequestHandlers: typeof resolveRequestHandlers;
-  getRouteMatchPathname: typeof getRouteMatchPathname;
+  trimInternalPathname: typeof trimInternalPathname;
   runQwikRouter: typeof runQwikRouter;
 }
 
@@ -36,7 +36,7 @@ const staticWorkerThreadDeps: StaticWorkerThreadDeps = {
   loadRoute,
   renderQwikMiddleware,
   resolveRequestHandlers,
-  getRouteMatchPathname,
+  trimInternalPathname,
   runQwikRouter,
 };
 
@@ -186,13 +186,12 @@ async function workerRender(
         }
 
         const hasRouteWriter = isHtml ? opts.emitHtml !== false : true;
-        const writeQDataEnabled = isHtml && opts.emitData !== false;
+        const writeLoaderDataEnabled = isHtml && opts.emitData !== false;
 
         const stream = new WritableStream<Uint8Array>({
           async start() {
             try {
-              if (hasRouteWriter || writeQDataEnabled) {
-                // for html pages, endpoints or q-data.json
+              if (hasRouteWriter || writeLoaderDataEnabled) {
                 // ensure the containing directory is created
                 await sys.ensureDir(routeFilePath);
               }
@@ -237,30 +236,36 @@ async function workerRender(
             const writePromises: Promise<any>[] = [];
 
             try {
-              if (writeQDataEnabled) {
+              if (writeLoaderDataEnabled) {
                 const qData: ClientPageData = requestEv.sharedMap.get(deps.RequestEvShareQData);
                 if (qData && !is404ErrorPage) {
-                  // write q-data.json file when enabled and qData is set
-                  const qDataFilePath = sys.getDataFilePath(url.pathname);
-                  const dataWriter = sys.createWriteStream(qDataFilePath);
-                  dataWriter.on('error', (e) => {
-                    console.error(e);
-                    result.error = {
-                      message: e.message,
-                      stack: e.stack,
-                    };
-                  });
+                  const manifestHash = (opts.manifest as any)?.manifestHash || 'dev';
+                  // Write individual per-loader files (only for loaders without expiry)
+                  for (const [loaderId, loaderData] of Object.entries(qData.loaders)) {
+                    const loaderFilePath = sys.getLoaderFilePath(
+                      url.pathname,
+                      loaderId,
+                      manifestHash
+                    );
+                    const loaderWriter = sys.createWriteStream(loaderFilePath);
+                    loaderWriter.on('error', (e) => {
+                      console.error(e);
+                      result.error = {
+                        message: e.message,
+                        stack: e.stack,
+                      };
+                    });
 
-                  const serialized = await deps.serialize(qData);
-                  dataWriter.write(serialized);
+                    const serialized = await deps.serialize([loaderData]);
+                    loaderWriter.write(serialized);
 
-                  writePromises.push(
-                    new Promise<void>((resolve) => {
-                      // set the static file path for the result
-                      result.filePath = routeFilePath;
-                      dataWriter.end(resolve);
-                    })
-                  );
+                    writePromises.push(
+                      new Promise<void>((resolve) => {
+                        result.filePath = routeFilePath;
+                        loaderWriter.end(resolve);
+                      })
+                    );
+                  }
                 }
               }
 
@@ -382,20 +387,19 @@ async function requestHandlerForSsg<T>(
     throw new Error('qwikRouterConfig is required.');
   }
 
-  const { pathname, isInternal } = deps.getRouteMatchPathname(serverRequestEv.url.pathname);
+  const pathname = deps.trimInternalPathname(serverRequestEv.url.pathname);
   if (pathname === '/.well-known' || pathname.startsWith('/.well-known/')) {
     return null;
   }
 
   const { routes, serverPlugins, cacheModules } = qwikRouterConfig;
-  const loadedRoute = await deps.loadRoute(routes, cacheModules, pathname, isInternal);
+  const loadedRoute = await deps.loadRoute(routes, cacheModules, pathname);
   const requestHandlers = deps.resolveRequestHandlers(
     serverPlugins,
     loadedRoute,
     serverRequestEv.request.method,
     checkOrigin ?? true,
-    deps.renderQwikMiddleware(render),
-    isInternal
+    deps.renderQwikMiddleware(render)
   );
 
   if (qwikRouterConfig.fallthrough && loadedRoute.$notFound$) {
@@ -403,15 +407,14 @@ async function requestHandlerForSsg<T>(
   }
 
   const rebuildRouteInfo = async (url: URL) => {
-    const { pathname } = deps.getRouteMatchPathname(url.pathname);
-    const loadedRoute = await deps.loadRoute(routes, cacheModules, pathname, isInternal);
+    const cleanPathname = deps.trimInternalPathname(url.pathname);
+    const loadedRoute = await deps.loadRoute(routes, cacheModules, cleanPathname);
     const requestHandlers = deps.resolveRequestHandlers(
       serverPlugins,
       loadedRoute,
       serverRequestEv.request.method,
       checkOrigin ?? true,
-      deps.renderQwikMiddleware(render),
-      isInternal
+      deps.renderQwikMiddleware(render)
     );
     return {
       loadedRoute,

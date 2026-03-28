@@ -198,7 +198,7 @@ export const routeLoaderQrl = ((
   loaderQrl: QRL<(event: RequestEventLoader) => unknown>,
   ...rest: (LoaderOptions | DataValidator)[]
 ): LoaderInternal => {
-  const { id, validators, serializationStrategy } = getValidators(rest, loaderQrl);
+  const { id, validators, serializationStrategy, expires, poll } = getValidators(rest, loaderQrl);
   function loader() {
     const state = _resolveContextWithoutSequentialScope(RouteStateContext)!;
 
@@ -226,7 +226,8 @@ export const routeLoaderQrl = ((
   loader.__validators = validators;
   loader.__id = id;
   loader.__serializationStrategy = serializationStrategy;
-  loader.__expires = -1; // -1 means no expiration
+  loader.__expires = expires ?? -1; // -1 means no expiration
+  loader.__poll = poll ?? false;
   Object.freeze(loader);
 
   return loader;
@@ -521,6 +522,8 @@ export const server$ = /*#__PURE__*/ implicit$FirstArg(serverQrl);
 const getValidators = (rest: (LoaderOptions | DataValidator)[], qrl: QRL) => {
   let id: string | undefined;
   let serializationStrategy: SerializationStrategy = DEFAULT_LOADERS_SERIALIZATION_STRATEGY;
+  let expires: number | undefined;
+  let poll: boolean | undefined;
   const validators: DataValidator[] = [];
   if (rest.length === 1) {
     const options = rest[0];
@@ -534,6 +537,12 @@ const getValidators = (rest: (LoaderOptions | DataValidator)[], qrl: QRL) => {
         }
         if (options.validation) {
           validators.push(...options.validation);
+        }
+        if ('expires' in options) {
+          expires = (options as LoaderOptions).expires;
+        }
+        if ('poll' in options) {
+          poll = (options as LoaderOptions).poll;
         }
       }
     }
@@ -555,6 +564,8 @@ const getValidators = (rest: (LoaderOptions | DataValidator)[], qrl: QRL) => {
     validators: validators.reverse(),
     id,
     serializationStrategy,
+    expires,
+    poll,
   };
 };
 

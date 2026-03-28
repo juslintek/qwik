@@ -37,7 +37,7 @@ test.describe('nav', () => {
     });
 
     test('should update history before async SPA route load completes', async ({ page }) => {
-      await page.route('**/products/jacket/q-data.json', async (route) => {
+      await page.route('**/products/jacket/q-loader-*.json', async (route) => {
         await new Promise((resolve) => setTimeout(resolve, 600));
         await route.continue();
       });
@@ -470,17 +470,6 @@ test.describe('nav', () => {
       );
 
       await expect(page.locator('#redirected-result')).toHaveText('true');
-    });
-
-    test('server plugin q-data redirect from /redirectme to /', async ({ baseURL }) => {
-      const res = await fetch(new URL('/qwikrouter-test/redirectme/q-data.json', baseURL), {
-        redirect: 'manual',
-        headers: {
-          Accept: 'application/json',
-        },
-      });
-      expect(res.status).toBe(301);
-      expect(res.headers.get('Location')).toBe('/qwikrouter-test/q-data.json');
     });
 
     test('should not execute task from removed layout, and should be executed only once for SPA', async ({

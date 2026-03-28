@@ -18,8 +18,7 @@ const MODULE_CACHE = /*#__PURE__*/ new WeakMap<any, any>();
 export const loadRoute = async (
   routes: RouteData | undefined,
   cacheModules: boolean | undefined,
-  pathname: string,
-  isInternal?: boolean
+  pathname: string
 ): Promise<LoadedRoute> => {
   const result = matchRouteTree(routes, pathname);
 
@@ -50,15 +49,12 @@ export const loadRoute = async (
   });
 
   let menu: ContentMenu | undefined = undefined;
-  // No need to load menu for internal QData requests
-  if (!isInternal) {
-    loadModule<MenuModule>(
-      menuLoader,
-      pendingLoads,
-      (menuModule) => (menu = menuModule?.default),
-      cacheModules
-    );
-  }
+  loadModule<MenuModule>(
+    menuLoader,
+    pendingLoads,
+    (menuModule) => (menu = menuModule?.default),
+    cacheModules
+  );
 
   // For not-found routes, create a wrapper module that renders 404.tsx for 404 status
   // and the default error handler for other statuses, with cacheKey based on status.

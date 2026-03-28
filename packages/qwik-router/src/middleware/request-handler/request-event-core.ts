@@ -38,8 +38,12 @@ interface RequestEventDeps {
   RewriteMessage: new (pathname: string) => RewriteMessage;
   ServerError: new <T = any>(status: number, data: T) => ServerError<T>;
   getRouteLoaderPromise: typeof import('./request-loader').getRouteLoaderPromise;
-  getRouteMatchPathname: typeof import('./request-path').getRouteMatchPathname;
-  IsQData: string;
+  recognizeRequest: typeof import('./request-path').recognizeRequest;
+  IsQLoader: string;
+  IsQAction: string;
+  QLoaderId: string;
+  QActionId: string;
+  QACTION_KEY: string;
   encoder: TextEncoder;
   getContentType: typeof import('./request-utils').getContentType;
 }
@@ -75,12 +79,26 @@ export function createRequestEventWithDeps(
   const cookie = new deps.Cookie(request.headers.get('cookie'));
   const headers = new Headers();
   const url = new URL(request.url);
-  const { pathname, isInternal } = deps.getRouteMatchPathname(url.pathname);
-  if (isInternal) {
-    // For the middleware callbacks we pretend it's a regular request
-    url.pathname = pathname;
-    // But we set this flag so that they can act differently
-    sharedMap.set(deps.IsQData, true);
+  // Recognize internal request types (q-loader-*.json)
+  const recognized = deps.recognizeRequest(url.pathname);
+  if (recognized) {
+    // Trim the internal URL suffix so route matching works on the clean path
+    const trimmed = url.pathname.slice(0, url.pathname.length - recognized.trimLength);
+    url.pathname = trimmed || '/';
+    if (!globalThis.__NO_TRAILING_SLASH__ && !url.pathname.endsWith('/')) {
+      url.pathname += '/';
+    }
+    sharedMap.set(recognized.type, true);
+    if (recognized.data?.loaderId) {
+      sharedMap.set(deps.QLoaderId, recognized.data.loaderId);
+    }
+  }
+
+  // Detect action requests via ?qaction= query parameter
+  const actionId = url.searchParams.get(deps.QACTION_KEY);
+  if (actionId) {
+    sharedMap.set(deps.IsQAction, true);
+    sharedMap.set(deps.QActionId, actionId);
   }
 
   let routeModuleIndex = -1;

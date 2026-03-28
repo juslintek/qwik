@@ -29,7 +29,8 @@ import {
   type ValueOrPromise,
 } from '@qwik.dev/core/internal';
 import { clientNavigate } from './client-navigate';
-import { CLIENT_DATA_CACHE, DEFAULT_LOADERS_SERIALIZATION_STRATEGY, Q_ROUTE } from './constants';
+import { DEFAULT_LOADERS_SERIALIZATION_STRATEGY, LOADER_CACHE, Q_ROUTE } from './constants';
+import { prefetchRoute } from './prefetch-route';
 import {
   ContentContext,
   ContentInternalContext,
@@ -192,6 +193,7 @@ export const useQwikRouter = (props?: QwikRouterProps) => {
       key,
       url,
       getSerializationStrategy(key),
+      manifestHash,
       container
     );
   }
@@ -412,8 +414,8 @@ export const useQwikRouter = (props?: QwikRouterProps) => {
     };
 
     if (isBrowser) {
-      loadClientData(dest);
-      loadRoute(qwikRouterConfig.routes, qwikRouterConfig.cacheModules, dest.pathname);
+      // Prefetch: start loading route bundles and optionally loader data
+      prefetchRoute(dest.pathname, true, 0.8, manifestHash);
     }
 
     actionState.value = undefined;
@@ -469,36 +471,35 @@ export const useQwikRouter = (props?: QwikRouterProps) => {
           qwikRouterConfig.cacheModules,
           trackUrl.pathname
         );
-        const pageData = (clientPageData = await loadClientData(trackUrl, {
-          action,
-          clearCache: true,
-        }));
+        try {
+          loadedRoute = await loadRoutePromise;
+        } catch (e) {
+          console.error(e);
+          window.location.href = trackUrl.href;
+          return;
+        }
+
+        const pageData = (clientPageData = await loadClientData(
+          trackUrl,
+          loadedRoute,
+          manifestHash,
+          {
+            action,
+            clearCache: true,
+          }
+        ));
         if (!pageData) {
           // Reset the path to the current path
           routeInternal.untrackedValue = { type: navType, dest: trackUrl };
           return;
         }
-        const newHref = pageData.href;
-        const newURL = new URL(newHref, trackUrl);
-        if (!isSamePath(newURL, trackUrl)) {
-          // Change our path to the canonical path in the response unless rewrite.
-          if (!pageData.isRewrite) {
-            trackUrl = newURL;
-          }
 
-          loadRoutePromise = loadRoute(
-            qwikRouterConfig.routes,
-            qwikRouterConfig.cacheModules,
-            newURL.pathname // Load the actual required path.
-          );
-        }
-
-        try {
-          loadedRoute = await loadRoutePromise;
-        } catch (e) {
-          console.error(e);
-          window.location.href = newHref;
-          return;
+        // Resolve action if one was submitted
+        if (action?.resolve && pageData.loaders[action.id] !== undefined) {
+          action.resolve({
+            status: pageData.status,
+            result: pageData.loaders[action.id],
+          });
         }
       }
 
@@ -600,14 +601,21 @@ export const useQwikRouter = (props?: QwikRouterProps) => {
                 key,
                 trackUrl,
                 DEFAULT_LOADERS_SERIALIZATION_STRATEGY,
+                manifestHash,
                 container
               );
             } else {
               signal.invalidate();
             }
           }
+          // remove not existing loaders
+          for (const key of Object.keys(loaderState)) {
+            if (!(key in loaders)) {
+              delete loaderState[key];
+            }
+          }
         }
-        CLIENT_DATA_CACHE.clear();
+        LOADER_CACHE.clear();
 
         // See also spa-init.ts
         if (!window._qRouterSPA) {

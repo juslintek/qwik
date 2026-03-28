@@ -1,4 +1,4 @@
-import { QACTION_KEY, QFN_KEY, QLOADER_KEY, resolveRouteConfig } from './worker-imports/runtime';
+import { QACTION_KEY, QFN_KEY, resolveRouteConfig } from './worker-imports/runtime';
 import {
   resolveETag,
   resolveCacheKey,
@@ -13,17 +13,12 @@ import {
   getRequestMode,
   RequestEvETagCacheKey,
   RequestEvHttpStatusMessage,
-  RequestEvIsRewrite,
   RequestEvShareQData,
   RequestEvShareServerTiming,
   RequestEvSharedActionId,
   RequestRouteName,
 } from '@qwik-router-ssg-worker/middleware/request-handler/request-event-core';
 import { getRouteLoaderPromise } from '@qwik-router-ssg-worker/middleware/request-handler/request-loader';
-import {
-  IsQData,
-  QDATA_JSON,
-} from '@qwik-router-ssg-worker/middleware/request-handler/request-path';
 import {
   encoder,
   isContentType,
@@ -36,12 +31,8 @@ import { getQwikRouterServerData } from './response-page-ssg';
 const requestHandlers = createResolveRequestHandlers({
   QACTION_KEY,
   QFN_KEY,
-  QLOADER_KEY,
-  QDATA_JSON,
-  IsQData,
   RequestEvETagCacheKey,
   RequestEvHttpStatusMessage,
-  RequestEvIsRewrite,
   RequestEvShareQData,
   RequestEvShareServerTiming,
   RequestEvSharedActionId,

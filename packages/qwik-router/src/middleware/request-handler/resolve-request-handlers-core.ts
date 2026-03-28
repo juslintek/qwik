@@ -16,17 +16,15 @@ import type {
   ValidatorReturn,
 } from '../../runtime/src/types';
 import type { RequestEventInternal } from './request-event-core';
+import { loaderHandler } from './handlers/loader-handler';
+import { actionHandler } from './handlers/action-handler';
 import type { ErrorCodes, RequestEvent, RequestEventBase, RequestHandler } from './types';
 
 interface ResolveRequestHandlersDeps {
   QACTION_KEY: string;
   QFN_KEY: string;
-  QLOADER_KEY: string;
-  QDATA_JSON: string;
-  IsQData: string;
   RequestEvETagCacheKey: string;
   RequestEvHttpStatusMessage: string;
-  RequestEvIsRewrite: string;
   RequestEvShareQData: string;
   RequestEvShareServerTiming: string;
   RequestEvSharedActionId: string;
@@ -59,8 +57,7 @@ export function createResolveRequestHandlers(deps: ResolveRequestHandlersDeps) {
     route: LoadedRoute,
     method: string,
     checkOrigin: boolean | 'lax-proto',
-    renderHandler: RequestHandler,
-    isInternal: boolean
+    renderHandler: RequestHandler
   ) => {
     const routeLoaders: LoaderInternal[] = [];
     const routeActions: ActionInternal[] = [];
@@ -68,10 +65,6 @@ export function createResolveRequestHandlers(deps: ResolveRequestHandlersDeps) {
     const requestHandlers: RequestHandler[] = [];
 
     const isPageRoute = !!isLastModulePageRoute(route.$mods$);
-
-    if (isInternal) {
-      requestHandlers.push(handleQDataRedirect);
-    }
 
     if (isPageRoute) {
       requestHandlers.push(serverErrorMiddleware(route, renderHandler));
@@ -108,17 +101,18 @@ export function createResolveRequestHandlers(deps: ResolveRequestHandlersDeps) {
         requestHandlers.unshift(csrfCheckMiddleware);
       }
     }
+
     if (isPageRoute) {
+      // Per-loader handler: returns JSON and exits if IsQLoader is set
+      requestHandlers.push(loaderHandler(routeLoaders, routeActions));
+      // Per-action handler: returns JSON and exits if IsQAction + Accept: json
+      requestHandlers.push(actionHandler(routeActions, routeLoaders));
       if (method === 'POST' || method === 'GET') {
         requestHandlers.push(runServerFunction);
       }
 
       if (!route.$notFound$) {
         requestHandlers.push(fixTrailingSlash);
-      }
-
-      if (isInternal) {
-        requestHandlers.push(renderQData);
       }
     }
 
@@ -135,14 +129,14 @@ export function createResolveRequestHandlers(deps: ResolveRequestHandlersDeps) {
     return requestHandlers;
   };
 
-  const _resolveRequestHandlers = (
+  function _resolveRequestHandlers(
     routeLoaders: LoaderInternal[],
     routeActions: ActionInternal[],
     requestHandlers: RequestHandler[],
     routeModules: RouteModule[],
     collectActions: boolean,
     method: string
-  ) => {
+  ) {
     for (const routeModule of routeModules) {
       if (typeof routeModule.onRequest === 'function') {
         requestHandlers.push(routeModule.onRequest);
@@ -200,7 +194,7 @@ export function createResolveRequestHandlers(deps: ResolveRequestHandlersDeps) {
         }
       }
     }
-  };
+  }
 
   const checkBrand = (obj: any, brand: string) => {
     return obj && typeof obj === 'function' && obj.__brand === brand;
@@ -282,7 +276,7 @@ export function createResolveRequestHandlers(deps: ResolveRequestHandlersDeps) {
       if (requestEv.headersSent) {
         return;
       }
-      if (requestEv.method !== 'GET' || requestEv.sharedMap.has(deps.IsQData)) {
+      if (requestEv.method !== 'GET') {
         return;
       }
 
@@ -377,10 +371,6 @@ export function createResolveRequestHandlers(deps: ResolveRequestHandlersDeps) {
         await requestEv.next();
       } catch (e) {
         if (!(e instanceof deps.ServerError) || requestEv.headersSent) {
-          throw e;
-        }
-
-        if (requestEv.sharedMap.has(deps.IsQData)) {
           throw e;
         }
 
@@ -496,15 +486,14 @@ export function createResolveRequestHandlers(deps: ResolveRequestHandlersDeps) {
   }
 
   function fixTrailingSlash(ev: RequestEvent) {
-    const { basePathname, originalUrl, sharedMap } = ev;
+    const { basePathname, originalUrl } = ev;
     const { pathname, search } = originalUrl;
-    const isQData = sharedMap.has(deps.IsQData);
 
     if (!pathname.startsWith('/') || pathname.startsWith('//')) {
       return;
     }
 
-    if (!isQData && pathname !== basePathname && !pathname.endsWith('.html')) {
+    if (pathname !== basePathname && !pathname.endsWith('.html')) {
       if (!globalThis.__NO_TRAILING_SLASH__) {
         if (!pathname.endsWith('/')) {
           throw ev.redirect(deps.HttpStatus.MovedPermanently, pathname + '/' + search);
@@ -542,9 +531,6 @@ export function createResolveRequestHandlers(deps: ResolveRequestHandlersDeps) {
 
   function getPathname(url: URL) {
     url = new URL(url);
-    if (url.pathname.endsWith(deps.QDATA_JSON)) {
-      url.pathname = url.pathname.slice(0, -deps.QDATA_JSON.length);
-    }
     if (!globalThis.__NO_TRAILING_SLASH__) {
       if (!url.pathname.endsWith('/')) {
         url.pathname += '/';
@@ -604,9 +590,6 @@ The request origin "${inputOrigin}" does not match the server origin "${origin}"
   function renderQwikMiddleware(render: Render) {
     return async (requestEv: RequestEvent) => {
       if (requestEv.headersSent) {
-        return;
-      }
-      if (requestEv.sharedMap.has(deps.IsQData)) {
         return;
       }
 
@@ -679,97 +662,6 @@ The request origin "${inputOrigin}" does not match the server origin "${origin}"
 
       await writableStream.close();
     };
-  }
-
-  async function handleQDataRedirect(requestEv: RequestEvent) {
-    try {
-      await requestEv.next();
-    } catch (err) {
-      if (!(err instanceof deps.RedirectMessage)) {
-        throw err;
-      }
-    }
-    if (requestEv.headersSent) {
-      return;
-    }
-
-    const status = requestEv.status();
-    const location = requestEv.headers.get('Location');
-    const isRedirect = status >= 301 && status <= 308 && location;
-
-    if (isRedirect) {
-      const adaptedLocation = makeQDataPath(location);
-      if (adaptedLocation) {
-        requestEv.headers.set('Location', adaptedLocation);
-        requestEv.getWritableStream().close();
-        return;
-      } else {
-        requestEv.status(200);
-        requestEv.headers.delete('Location');
-      }
-    }
-  }
-
-  async function renderQData(requestEv: RequestEvent) {
-    await requestEv.next();
-
-    if (requestEv.headersSent || requestEv.exited) {
-      return;
-    }
-
-    const status = requestEv.status();
-    const redirectLocation = requestEv.headers.get('Location');
-
-    requestEv.headers.set('Content-Type', 'application/json; charset=utf-8');
-
-    let loaders = deps.getRequestLoaders(requestEv);
-    const selectedLoaderIds = requestEv.query.getAll(deps.QLOADER_KEY);
-
-    const hasCustomLoaders = selectedLoaderIds.length > 0;
-
-    if (hasCustomLoaders) {
-      const selectedLoaders: Record<string, unknown> = {};
-      for (const loaderId of selectedLoaderIds) {
-        const loader = loaders[loaderId];
-        selectedLoaders[loaderId] = loader;
-      }
-      loaders = selectedLoaders;
-    }
-
-    const qData: ClientPageData = hasCustomLoaders
-      ? {
-          loaders,
-          status: status !== 200 ? status : 200,
-          href: getPathname(requestEv.url),
-        }
-      : {
-          loaders,
-          action: requestEv.sharedMap.get(deps.RequestEvSharedActionId),
-          status: status !== 200 ? status : 200,
-          href: getPathname(requestEv.url),
-          redirect: redirectLocation ?? undefined,
-          isRewrite: requestEv.sharedMap.get(deps.RequestEvIsRewrite),
-        };
-    const writer = requestEv.getWritableStream().getWriter();
-    const data = await _serialize(qData);
-    writer.write(deps.encoder.encode(data));
-    requestEv.sharedMap.set(deps.RequestEvShareQData, qData);
-
-    writer.close();
-  }
-
-  function makeQDataPath(href: string) {
-    if (href.startsWith('/')) {
-      if (!href.includes(deps.QDATA_JSON)) {
-        const url = new URL(href, 'http://localhost');
-
-        const pathname = url.pathname.endsWith('/') ? url.pathname.slice(0, -1) : url.pathname;
-        return pathname + deps.QDATA_JSON + url.search;
-      }
-      return href;
-    } else {
-      return undefined;
-    }
   }
 
   function now() {
