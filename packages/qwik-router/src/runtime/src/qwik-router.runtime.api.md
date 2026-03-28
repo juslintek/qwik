@@ -463,6 +463,7 @@ export interface RouteData {
     // Warning: (ae-forgotten-export) The symbol "MenuModuleLoader" needs to be exported by the entry point index.d.ts
     _N?: MenuModuleLoader;
     _P?: string;
+    _R?: string[];
 }
 
 // Warning: (ae-forgotten-export) The symbol "LoaderConstructor" needs to be exported by the entry point index.d.ts

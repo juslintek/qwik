@@ -50,6 +50,25 @@ export function qwikRouter(userOpts?: QwikRouterVitePluginOptions): PluginOption
   return [qwikRouterPlugin(userOpts), serverFnsPlugin(), ...imagePlugin(userOpts)];
 }
 
+/** Replace **LOADERS:path1|path2** placeholders in code with actual loader hash arrays */
+function replaceLoaderPlaceholders(code: string, loadersByFile: Map<string, string[]>): string {
+  // TODO remove _R if no loaders
+  return code.replace(/"__LOADERS:([^"]+)__"/g, (_match, paths: string) => {
+    const filePaths = paths.split('|');
+    const hashes: string[] = [];
+    for (const filePath of filePaths) {
+      const fileHashes = loadersByFile.get(filePath);
+      if (fileHashes) {
+        hashes.push(...fileHashes);
+      }
+    }
+    if (hashes.length > 0) {
+      return JSON.stringify(hashes);
+    }
+    return 'void 0';
+  });
+}
+
 function qwikRouterPlugin(userOpts?: QwikRouterVitePluginOptions) {
   let ctx: RoutingContext | null = null;
   let mdxTransform: MdxTransform | null = null;
@@ -62,6 +81,8 @@ function qwikRouterPlugin(userOpts?: QwikRouterVitePluginOptions) {
   let devSsrServer = userOpts?.devSsrServer;
   const routesDir = userOpts?.routesDir ?? 'src/routes';
   const serverPluginsDir = userOpts?.serverPluginsDir ?? routesDir;
+  /** Map from source file path to array of routeLoader$ hashes found in that file */
+  const loadersByFile = new Map<string, string[]>();
 
   const api: QwikRouterPluginApi = {
     getBasePathname: () => ctx?.opts.basePathname ?? '/',
@@ -185,6 +206,28 @@ function qwikRouterPlugin(userOpts?: QwikRouterVitePluginOptions) {
       if (!qwikPlugin) {
         throw new Error('Missing vite-plugin-qwik');
       }
+
+      // Register callback to discover routeLoader$ hashes from optimizer segments
+      qwikPlugin.api.onSegment((parentId, segment) => {
+        if (segment.ctxName === 'routeLoader$') {
+          const normalizedId = normalizePath(parentId);
+          const existing = loadersByFile.get(normalizedId) || [];
+          existing.push(segment.hash);
+          loadersByFile.set(normalizedId, existing);
+
+          // In dev: invalidate @qwik-router-config so trie re-generates with loader info
+          if (devServer) {
+            const graph = devServer.environments?.ssr?.moduleGraph;
+            if (graph) {
+              const mod = graph.getModuleById('@qwik-router-config');
+              if (mod) {
+                ctx!.isDirty = true;
+                graph.invalidateModule(mod);
+              }
+            }
+          }
+        }
+      });
       if (typeof devSsrServer !== 'boolean') {
         // read the old option from qwik plugin
         devSsrServer = qwikPlugin.api._oldDevSsrServer();
@@ -278,7 +321,8 @@ function qwikRouterPlugin(userOpts?: QwikRouterVitePluginOptions) {
             return generateQwikRouterConfig(
               ctx,
               qwikPlugin!,
-              this.environment.config.consumer === 'server'
+              this.environment.config.consumer === 'server',
+              loadersByFile
             );
           }
 
@@ -336,6 +380,16 @@ function qwikRouterPlugin(userOpts?: QwikRouterVitePluginOptions) {
     },
 
     generateBundle(_, bundles) {
+      // Replace _R placeholder strings with actual loader hash arrays.
+      // loadersByFile is populated during SERVER transforms (routeLoader$ is stripped on client).
+      // This replacement works in SSR bundles. For client bundles, see writeBundle below.
+      if (loadersByFile.size > 0) {
+        for (const chunk of Object.values(bundles)) {
+          if (chunk.type === 'chunk' && chunk.code.includes('__LOADERS:')) {
+            chunk.code = replaceLoaderPlaceholders(chunk.code, loadersByFile);
+          }
+        }
+      }
       // Turn entry and service worker chunks into entry points
       if (this.environment.config.consumer === 'client') {
         const entries = [...ctx!.entries, ...ctx!.serviceWorkers].map((entry) => {

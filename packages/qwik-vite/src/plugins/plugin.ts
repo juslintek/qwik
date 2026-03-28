@@ -92,6 +92,7 @@ export function createQwikPlugin(optimizerOptions: OptimizerOptions = {}) {
 
   const serverTransformedOutputs = new Map<string, [TransformModule, string]>();
   const parentIds = new Map<string, string>();
+  const segmentCallbacks = new Set<(parentId: string, segment: SegmentAnalysis) => void>();
 
   let internalOptimizer: Optimizer | null = null;
   let linter: QwikLinter | undefined = undefined;
@@ -878,6 +879,12 @@ export function createQwikPlugin(optimizerOptions: OptimizerOptions = {}) {
               preserveSignature: 'allow-extension',
             });
           }
+          // Notify segment callbacks
+          if (mod.segment && segmentCallbacks.size > 0) {
+            for (const cb of segmentCallbacks) {
+              cb(id, mod.segment);
+            }
+          }
         }
       }
 
@@ -1183,6 +1190,7 @@ export const manifest = ${serverManifest ? JSON.stringify(serverManifest) : 'glo
     normalizePath,
     onDiagnostics,
     resolveId,
+    segmentCallbacks,
     transform,
     validateSource,
     setSourceMapSupport,

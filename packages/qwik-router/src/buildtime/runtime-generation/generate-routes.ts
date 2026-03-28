@@ -36,7 +36,8 @@ export function createRoutes(
   qwikPlugin: QwikVitePlugin,
   c: string[],
   esmImports: string[],
-  isSSR: boolean
+  isSSR: boolean,
+  loadersByFile?: Map<string, string[]>
 ) {
   const includeEndpoints = isSSR;
   const dynamicImports = ctx.dynamicImports;
@@ -134,7 +135,8 @@ export function createRoutes(
     notFoundFiles,
     [],
     isSSR,
-    ''
+    '',
+    loadersByFile
   );
 
   // Note: both error.tsx and 404.tsx in the same directory is fine.
@@ -181,7 +183,8 @@ function serializeBuildTrie(
   notFoundFiles: Map<string, string>,
   ancestorLayouts: LayoutInfo[],
   isSSR: boolean,
-  indent: string
+  indent: string,
+  loadersByFile?: Map<string, string[]>
 ): string {
   const lines: string[] = [];
   const nextIndent = indent + '  ';
@@ -314,6 +317,34 @@ function serializeBuildTrie(
     }
   }
 
+  // Emit _R: routeLoader$ hashes for this node.
+  // In dev mode (loadersByFile populated after invalidation), emit directly.
+  // In build mode, emit placeholder string for renderChunk replacement.
+  {
+    const routeFiles = node._files
+      .filter((f) => f.type === 'route' || f.type === 'layout')
+      .map((f) => f.filePath);
+    if (routeFiles.length > 0) {
+      const nodeLoaderHashes: string[] = [];
+      if (loadersByFile) {
+        for (const filePath of routeFiles) {
+          const hashes = loadersByFile.get(filePath);
+          if (hashes) {
+            nodeLoaderHashes.push(...hashes);
+          }
+        }
+      }
+      if (nodeLoaderHashes.length > 0) {
+        // Hashes already known (dev mode re-eval)
+        lines.push(`${nextIndent}_R: ${JSON.stringify(nodeLoaderHashes)},`);
+      } else {
+        // Emit placeholder: "__LOADERS:path1|path2__" — replaced in renderChunk
+        const placeholder = `__LOADERS:${routeFiles.join('|')}__`;
+        lines.push(`${nextIndent}_R: ${JSON.stringify(placeholder)},`);
+      }
+    }
+  }
+
   // Emit _E, _4, _N
   if (errorExpr) {
     lines.push(`${nextIndent}_E: ${errorExpr},`);
@@ -356,7 +387,8 @@ function serializeBuildTrie(
         notFoundFiles,
         childAncestors,
         isSSR,
-        nextIndent
+        nextIndent,
+        loadersByFile
       );
       if (childStr !== '{}') {
         groupStrs.push(childStr);

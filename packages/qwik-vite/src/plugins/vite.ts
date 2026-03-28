@@ -13,6 +13,7 @@ import type {
   Optimizer,
   OptimizerOptions,
   QwikManifest,
+  SegmentAnalysis,
   TransformModule,
 } from '../types';
 import { type BundleGraphAdder } from './bundle-graph';
@@ -119,6 +120,9 @@ export function qwikVite(qwikViteOpts: QwikVitePluginOptions = {}): any {
     getClientPublicOutDir: () => clientPublicOutDir,
     getAssetsDir: () => viteAssetsDir,
     registerBundleGraphAdder: (adder: BundleGraphAdder) => bundleGraphAdders.add(adder),
+    onSegment: (callback: SegmentCallback) => {
+      qwikPlugin.segmentCallbacks.add(callback);
+    },
     _oldDevSsrServer: () => qwikViteOpts.devSsrServer,
   };
 
@@ -1039,6 +1043,9 @@ export type QwikVitePluginOptions = QwikVitePluginCSROptions | QwikVitePluginSSR
 export { ExperimentalFeatures } from './plugin';
 
 /** @public */
+export type SegmentCallback = (parentId: string, segment: SegmentAnalysis) => void;
+
+/** @public */
 export interface QwikVitePluginApi {
   getOptimizer: () => Optimizer | null;
   getOptions: () => NormalizedQwikPluginOptions;
@@ -1048,6 +1055,8 @@ export interface QwikVitePluginApi {
   getClientPublicOutDir: () => string | null;
   getAssetsDir: () => string | undefined;
   registerBundleGraphAdder: (adder: BundleGraphAdder) => void;
+  /** Register a callback that fires for each segment emitted during transform. */
+  onSegment: (callback: SegmentCallback) => void;
   /** @internal */
   _oldDevSsrServer: () => boolean | undefined;
 }

@@ -320,6 +320,8 @@ export interface RouteData {
   _M?: RouteData[];
   /** Menu loader for this subtree (from menu.md). Runtime uses nearest ancestor during traversal. */
   _N?: MenuModuleLoader;
+  /** Array of routeLoader$ hashes for this node's loaders */
+  _R?: string[];
   /** Child route segments (any key not starting with `_`) */
   [part: string]:
     | RouteData
@@ -413,6 +415,8 @@ export interface LoadedRoute {
   $notFound$?: boolean;
   /** The error module loader (nearest _E ancestor), for rendering ServerErrors */
   $errorLoader$?: ContentModuleLoader;
+  /** Merged array of routeLoader$ hashes from all matched nodes (layouts + page) */
+  $loaders$?: string[];
 }
 
 export interface EndpointResponse {
