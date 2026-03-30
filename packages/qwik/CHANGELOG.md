@@ -1,5 +1,14 @@
 # @qwik.dev/core
 
+## 2.0.0-beta.31
+
+### Patch Changes
+
+- 🐞🩹 crash when inserting dom nodes near an errored-host (by [@Varixo](https://github.com/Varixo) in [#8494](https://github.com/QwikDev/qwik/pull/8494))
+
+- Updated dependencies [[`152e65b`](https://github.com/QwikDev/qwik/commit/152e65b5e5de81b6f3f09516c8b893c6e92e4959)]:
+  - @qwik.dev/optimizer@2.0.1-beta.1
+
 ## 2.0.0-beta.30
 
 ### Major Changes
