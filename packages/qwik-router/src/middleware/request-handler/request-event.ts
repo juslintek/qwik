@@ -3,7 +3,6 @@ import { isPromise } from '../../runtime/src/utils';
 import { createCacheControl } from './cache-control';
 import { Cookie } from './cookie';
 import { createRequestEventWithDeps } from './request-event-core';
-import { getRouteLoaderPromise } from './request-loader';
 import { IsQAction, IsQLoader, QActionId, QLoaderId, recognizeRequest } from './request-path';
 import { AbortMessage, RedirectMessage } from './redirect-handler';
 import { RewriteMessage } from './rewrite-handler';
@@ -23,7 +22,6 @@ const requestEventDeps = {
   RedirectMessage,
   RewriteMessage,
   ServerError,
-  getRouteLoaderPromise,
   recognizeRequest,
   IsQLoader,
   IsQAction,

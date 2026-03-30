@@ -1,19 +1,13 @@
-import { _serialize, _UNINITIALIZED, _verifySerializable, isDev } from '@qwik.dev/core/internal';
+import { _serialize, _verifySerializable, isDev } from '@qwik.dev/core/internal';
 import type {
   ActionInternal,
   DataValidator,
   JSONObject,
-  LoaderInternal,
   RequestEvent,
   RequestHandler,
   ValidatorReturn,
 } from '../../../runtime/src/types';
-import {
-  getRequestLoaders,
-  getRequestLoaderSerializationStrategyMap,
-  type RequestEventInternal,
-} from '../request-event-core';
-import { getRouteLoaderPromise } from '../request-loader';
+import { type RequestEventInternal } from '../request-event-core';
 import { IsQAction, QActionId } from '../request-path';
 import type { QRL } from '@qwik.dev/core';
 import type { RequestEventBase } from '../types';
@@ -26,7 +20,7 @@ import type { RequestEventBase } from '../types';
  */
 export function actionHandler(
   routeActions: ActionInternal[],
-  routeLoaders: LoaderInternal[]
+  routeLoaderHashes: string[]
 ): RequestHandler {
   return async (requestEvent: RequestEvent) => {
     const requestEv = requestEvent as RequestEventInternal;
@@ -60,8 +54,6 @@ export function actionHandler(
       return;
     }
 
-    const loaders = getRequestLoaders(requestEv);
-
     // Find the action
     let action: ActionInternal | undefined;
     for (const routeAction of routeActions) {
@@ -89,9 +81,10 @@ export function actionHandler(
       throw new Error(`Expected request data for the action id ${actionId} to be an object`);
     }
 
+    let actionResult: unknown;
     const result = await runValidators(requestEv, action.__validators, data, devMode);
     if (!result.success) {
-      loaders[actionId] = requestEv.fail(result.status ?? 500, result.error);
+      actionResult = requestEv.fail(result.status ?? 500, result.error);
     } else {
       const actionResolved = devMode
         ? await measure(requestEv, action.__qrl.getHash(), () =>
@@ -101,22 +94,15 @@ export function actionHandler(
       if (devMode) {
         verifySerializable(actionResolved, action.__qrl);
       }
-      loaders[actionId] = actionResolved;
+      actionResult = actionResolved;
     }
+    requestEv.sharedMap.set('@actionResult', actionResult);
 
-    // Run all route loaders after the action so they can see the action result
-    // via resolveValue() (loaders may depend on action results)
-    const loadersSerializationStrategy = getRequestLoaderSerializationStrategyMap(requestEv);
-    if (routeLoaders.length > 0) {
-      const loaderPromises = routeLoaders.map((loader) =>
-        getRouteLoaderPromise(loader, loaders, loadersSerializationStrategy, requestEv)
-      );
-      await Promise.all(loaderPromises);
-    }
-
-    // Return action result + all loader results as JSON
-    // The client uses this to update all loader signals after an action
-    const serialized = await _serialize(loaders);
+    const serialized = await _serialize({
+      result: actionResult,
+      // TODO get via `invalidate: [useUser, useEtc]` option
+      loaderHashes: routeLoaderHashes,
+    });
     requestEv.headers.set('Content-Type', 'application/json; charset=utf-8');
     requestEv.send(200, serialized);
   };

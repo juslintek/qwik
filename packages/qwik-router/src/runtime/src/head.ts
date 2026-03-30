@@ -1,4 +1,5 @@
 import { withLocale } from '@qwik.dev/core';
+import type { AsyncSignal } from '@qwik.dev/core/internal';
 import type {
   CacheKeyFn,
   ContentModule,
@@ -16,7 +17,6 @@ import type {
   RouteConfig,
   RouteConfigValue,
 } from './types';
-import { isPromise } from './utils';
 
 export interface ResolvedRouteConfig {
   head: ResolvedDocumentHead;
@@ -138,6 +138,7 @@ export const resolveRouteConfig = (
  */
 export const resolveHead = (
   endpoint: EndpointResponse | ClientPageData,
+  loaderState: Record<string, AsyncSignal<unknown>> | undefined,
   routeLocation: RouteLocation,
   contentModules: ContentModule[],
   locale: string,
@@ -145,18 +146,15 @@ export const resolveHead = (
 ): ResolvedDocumentHead => {
   const getData = ((loaderOrAction: LoaderInternal | ActionInternal) => {
     const id = loaderOrAction.__id;
-    if (loaderOrAction.__brand === 'server_loader') {
-      if (!(id in endpoint.loaders)) {
-        throw new Error(
-          'You can not get the returned data of a loader that has not been executed for this request.'
-        );
+    const signal = loaderState?.[id];
+    if (signal) {
+      if (signal.loading) {
+        throw new Error('Loaders returning a promise can not be resolved for the head function.');
       }
+      return signal.value;
     }
-    const data = endpoint.loaders[id];
-    if (isPromise(data)) {
-      throw new Error('Loaders returning a promise can not be resolved for the head function.');
-    }
-    return data;
+    // Loader not in current route — return undefined
+    return undefined;
   }) as any as ResolveSyncValue;
 
   return resolveRouteConfig(

@@ -324,6 +324,12 @@ function serializeBuildTrie(
     const routeFiles = node._files
       .filter((f) => f.type === 'route' || f.type === 'layout')
       .map((f) => f.filePath);
+    // Include server plugin files at the root trie node (they apply to all routes)
+    if (node === ctx.routeTrie) {
+      for (const plugin of ctx.serverPlugins) {
+        routeFiles.push(plugin.filePath);
+      }
+    }
     if (routeFiles.length > 0) {
       const nodeLoaderHashes: string[] = [];
       if (loadersByFile) {

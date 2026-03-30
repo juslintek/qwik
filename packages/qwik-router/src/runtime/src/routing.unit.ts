@@ -225,6 +225,28 @@ test('loadRoute — root route matches /', async () => {
   assert.deepEqual(result.$params$, {});
 });
 
+test('loadRoute — loader paths are replaced by deeper matches', async () => {
+  const routes: RouteData = {
+    _R: ['shared-loader'],
+    products: {
+      _W: {
+        _P: 'id',
+        _R: ['shared-loader'],
+        view: {
+          _I: makeLoader(),
+        },
+      },
+    },
+  };
+
+  const result = await loadRoute(routes, false, '/products/123/view');
+
+  assert.isFalse(result.$notFound$);
+  assert.deepEqual(result.$loaderPaths$, {
+    'shared-loader': '/products/123/',
+  });
+});
+
 test('loadRoute — 404 fallback used when no route matches', async () => {
   const marker = () => 'not-found-sentinel';
   const sentinel = { default: marker };

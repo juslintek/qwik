@@ -1,4 +1,3 @@
-import { LOADER_CACHE } from './constants';
 import type { ClientPageData, LoadedRoute, RouteActionValue } from './types';
 import { _deserialize } from '@qwik.dev/core/internal';
 import { QACTION_KEY } from './constants';
@@ -10,55 +9,48 @@ import { QACTION_KEY } from './constants';
  */
 export async function fetchLoader(
   loaderId: string,
-  routePath: string,
+  routePath: string | undefined,
   manifestHash: string,
   abortController?: AbortController,
-  search?: string
+  search?: string,
+  skipCache = false
 ): Promise<unknown> {
+  if (!routePath) {
+    return undefined;
+  }
   const pathBase = routePath.endsWith('/') ? routePath : routePath + '/';
   const url = `${pathBase}q-loader-${loaderId}.${manifestHash}.json${search || ''}`;
 
-  const cacheKey = url;
-  const cached = LOADER_CACHE.get(cacheKey);
-  if (cached) {
-    return cached;
-  }
-
-  const promise = fetch(url, {
+  return fetch(url, {
     signal: abortController?.signal,
+    cache: skipCache ? 'reload' : 'default',
   }).then(async (response) => {
     if (response.redirected) {
       // Server issued a redirect (from loader/middleware throw redirect()).
       // Abort all other loader fetches and navigate to the redirect target.
       abortController?.abort();
-      LOADER_CACHE.delete(cacheKey);
       location.href = response.url;
       return undefined;
     }
     if (!response.ok) {
-      LOADER_CACHE.delete(cacheKey);
       return undefined;
     }
     const text = await response.text();
     const [data] = _deserialize<[unknown]>(text) ?? [undefined];
     return data;
   });
-
-  LOADER_CACHE.set(cacheKey, promise);
-  return promise;
 }
 
 /**
  * Submit an action to the server and get the result.
  *
  * POSTs to `/routePath/?qaction={actionId}` with `Accept: application/json`. The server runs the
- * action AND all route loaders, returning the full loaders map. This ensures loaders that depend on
- * action results (via resolveValue) work correctly.
+ * action and returns the action result together with the loader hashes that should be invalidated.
  */
 export async function submitAction(
   action: NonNullable<RouteActionValue>,
   routePath: string
-): Promise<{ status: number; loaders: Record<string, unknown> } | undefined> {
+): Promise<{ status: number; result: unknown; loaderHashes: string[] } | undefined> {
   const pathBase = routePath.endsWith('/') ? routePath : routePath + '/';
   const url = `${pathBase}?${QACTION_KEY}=${encodeURIComponent(action.id)}`;
 
@@ -98,9 +90,12 @@ export async function submitAction(
 
   if ((response.headers.get('content-type') || '').includes('json')) {
     const text = await response.text();
-    // The server returns the full loaders map (action result + all loader results)
-    const loaders = _deserialize<Record<string, unknown>>(text) ?? {};
-    return { status: response.status, loaders };
+    const data = _deserialize<{ result: unknown; loaderHashes?: string[] }>(text);
+    return {
+      status: response.status,
+      result: data?.result,
+      loaderHashes: data?.loaderHashes ?? [],
+    };
   }
 
   return undefined;
@@ -122,53 +117,21 @@ export const loadClientData = async (
     clearCache?: boolean;
   }
 ): Promise<ClientPageData | undefined> => {
-  let loaders: Record<string, unknown> = {};
-  let actionResult: { status: number; loaders: Record<string, unknown> } | undefined;
+  let actionResult: { status: number; result: unknown; loaderHashes: string[] } | undefined;
 
   if (opts?.action) {
     actionResult = await submitAction(opts.action, url.pathname);
     if (!actionResult) {
       return undefined;
     }
-    // The action response includes all loader results — use them directly
-    loaders = actionResult.loaders;
     opts.action.data = undefined;
-  }
-
-  // Only fetch individual loaders if no action was submitted
-  // (action response already includes all loader results)
-  const loaderHashes = opts?.loaderIds ?? loadedRoute?.$loaders$ ?? [];
-  if (!actionResult && manifestHash && loaderHashes.length) {
-    const abortController = new AbortController();
-
-    try {
-      const loaderPromises = loaderHashes.map(async (hash) => {
-        const data = await fetchLoader(
-          hash,
-          url.pathname,
-          manifestHash,
-          abortController,
-          url.search
-        );
-        loaders[hash] = data;
-      });
-      await Promise.all(loaderPromises);
-    } catch (e) {
-      if (e instanceof Error && e.name === 'AbortError') {
-        // Expected when redirect happens
-      } else {
-        throw e;
-      }
-    }
-  }
-
-  if (opts?.clearCache) {
-    LOADER_CACHE.clear();
   }
 
   return {
     status: actionResult?.status ?? 200,
-    loaders,
+    loaders: {},
+    loaderHashes: actionResult?.loaderHashes,
+    actionResult: actionResult?.result,
     href: url.pathname,
   } as ClientPageData;
 };

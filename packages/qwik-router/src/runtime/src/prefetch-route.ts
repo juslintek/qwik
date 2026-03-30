@@ -51,12 +51,13 @@ export async function prefetchRoute(
     }
 
     // Prefetch loader data in parallel (fire-and-forget)
-    if (loadedRoute.$loaders$?.length) {
-      loadedRoute.$loaders$.map((hash) =>
-        fetchLoader(hash, pathname, manifestHash!).catch(() => {
+    if (loadedRoute.$loaders$?.length && loadedRoute.$loaderPaths$) {
+      loadedRoute.$loaders$.map((hash) => {
+        const loaderPath = loadedRoute.$loaderPaths$?.[hash] ?? pathname;
+        return fetchLoader(hash, loaderPath, manifestHash!).catch(() => {
           // Silently ignore prefetch errors
-        })
-      );
+        });
+      });
     }
   } catch {
     // Silently ignore prefetch errors

@@ -1,10 +1,4 @@
-import type { ValueOrPromise } from '@qwik.dev/core';
-import {
-  _deserialize,
-  _UNINITIALIZED,
-  isDev,
-  type SerializationStrategy,
-} from '@qwik.dev/core/internal';
+import { _deserialize, isDev } from '@qwik.dev/core/internal';
 import type {
   ActionInternal,
   FailReturn,
@@ -12,6 +6,11 @@ import type {
   LoadedRoute,
   LoaderInternal,
 } from '../../runtime/src/types';
+import {
+  ensureRouteLoaderSignal,
+  getRouteLoaderState,
+  getRouteLoaderCtx,
+} from '../../runtime/src/route-loaders';
 import type { AbortMessage, RedirectMessage } from './redirect-handler';
 import type { RewriteMessage } from './rewrite-handler';
 import type { ServerError } from './server-error';
@@ -37,7 +36,6 @@ interface RequestEventDeps {
   RedirectMessage: new () => RedirectMessage;
   RewriteMessage: new (pathname: string) => RewriteMessage;
   ServerError: new <T = any>(status: number, data: T) => ServerError<T>;
-  getRouteLoaderPromise: typeof import('./request-loader').getRouteLoaderPromise;
   recognizeRequest: typeof import('./request-path').recognizeRequest;
   IsQLoader: string;
   IsQAction: string;
@@ -48,12 +46,8 @@ interface RequestEventDeps {
   getContentType: typeof import('./request-utils').getContentType;
 }
 
-const RequestEvLoaders = Symbol('RequestEvLoaders');
 const RequestEvMode = Symbol('RequestEvMode');
 const RequestEvRoute = Symbol('RequestEvRoute');
-export const RequestEvLoaderSerializationStrategyMap = Symbol(
-  'RequestEvLoaderSerializationStrategyMap'
-);
 export const RequestRouteName = '@routeName';
 export const RequestEvSharedActionId = '@actionId';
 export const RequestEvSharedActionFormData = '@actionFormData';
@@ -181,10 +175,7 @@ export function createRequestEventWithDeps(
     return message;
   };
 
-  const loaders: Record<string, ValueOrPromise<unknown> | undefined> = {};
   const requestEv: RequestEventInternal = {
-    [RequestEvLoaders]: loaders,
-    [RequestEvLoaderSerializationStrategyMap]: new Map(),
     [RequestEvMode]: serverRequestEv.mode,
     get [RequestEvRoute]() {
       return loadedRoute;
@@ -231,25 +222,18 @@ export function createRequestEventWithDeps(
     },
 
     resolveValue: (async (loaderOrAction: LoaderInternal | ActionInternal) => {
-      // create user request event, which is a narrowed down request context
-      const id = loaderOrAction.__id;
       if (loaderOrAction.__brand === 'server_loader') {
-        if (!(id in loaders)) {
-          throw new Error(
-            'You can not get the returned data of a loader that has not been executed for this request.'
-          );
+        const loaderState = getRouteLoaderState(requestEv);
+        const routeLoaderCtx = getRouteLoaderCtx(requestEv);
+        const signal = ensureRouteLoaderSignal(loaderOrAction, loaderState, routeLoaderCtx);
+        if (signal.loading) {
+          await signal.promise();
         }
-        if (loaders[id] === _UNINITIALIZED) {
-          await deps.getRouteLoaderPromise(
-            loaderOrAction,
-            loaders,
-            requestEv[RequestEvLoaderSerializationStrategyMap],
-            requestEv
-          );
-        }
+        return signal.value;
       }
 
-      return loaders[id];
+      // Action result
+      return requestEv.sharedMap.get('@actionResult');
     }) as ResolveValue,
 
     status: (statusCode?: number) => {
@@ -379,8 +363,6 @@ export function createRequestEventWithDeps(
 }
 
 export interface RequestEventInternal extends Readonly<RequestEvent>, Readonly<RequestEventLoader> {
-  readonly [RequestEvLoaders]: Record<string, ValueOrPromise<unknown> | undefined>;
-  readonly [RequestEvLoaderSerializationStrategyMap]: Map<string, SerializationStrategy>;
   readonly [RequestEvMode]: ServerRequestMode;
   readonly [RequestEvRoute]: LoadedRoute;
 
@@ -403,14 +385,6 @@ export interface RequestEventInternal extends Readonly<RequestEvent>, Readonly<R
     requestHandlers: RequestHandler<any>[],
     url: URL
   ): void;
-}
-
-export function getRequestLoaders(requestEv: RequestEventCommon) {
-  return (requestEv as RequestEventInternal)[RequestEvLoaders];
-}
-
-export function getRequestLoaderSerializationStrategyMap(requestEv: RequestEventCommon) {
-  return (requestEv as RequestEventInternal)[RequestEvLoaderSerializationStrategyMap];
 }
 
 export function getRequestRoute(requestEv: RequestEventCommon) {

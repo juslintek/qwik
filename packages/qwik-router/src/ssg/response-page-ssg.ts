@@ -1,6 +1,4 @@
 import {
-  getRequestLoaders,
-  getRequestLoaderSerializationStrategyMap,
   getRequestRoute,
   RequestEvHttpStatusMessage,
   RequestEvSharedActionFormData,
@@ -21,8 +19,6 @@ const responsePageDeps = {
   RequestEvSharedActionId,
   RequestEvSharedNonce,
   RequestRouteName,
-  getRequestLoaders,
-  getRequestLoaderSerializationStrategyMap,
   getRequestRoute,
 };
 

@@ -1,7 +1,6 @@
 import { createCacheControl } from '@qwik-router-ssg-worker/middleware/request-handler/cache-control';
 import { Cookie } from '@qwik-router-ssg-worker/middleware/request-handler/cookie';
 import { createRequestEventWithDeps } from '@qwik-router-ssg-worker/middleware/request-handler/request-event-core';
-import { getRouteLoaderPromise } from '@qwik-router-ssg-worker/middleware/request-handler/request-loader';
 import {
   IsQAction,
   IsQLoader,
@@ -34,7 +33,6 @@ const requestEventDeps = {
   RedirectMessage,
   RewriteMessage,
   ServerError,
-  getRouteLoaderPromise,
   recognizeRequest,
   IsQLoader,
   IsQAction,

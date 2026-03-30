@@ -19,17 +19,15 @@ import {
 import {
   _getContextContainer,
   _hasStoreEffects,
-  _UNINITIALIZED,
   _waitUntilRendered,
+  createAsync$,
   forceStoreEffects,
-  SerializerSymbol,
   type AsyncSignal,
   type ClientContainer,
-  type SerializationStrategy,
   type ValueOrPromise,
 } from '@qwik.dev/core/internal';
 import { clientNavigate } from './client-navigate';
-import { DEFAULT_LOADERS_SERIALIZATION_STRATEGY, LOADER_CACHE, Q_ROUTE } from './constants';
+import { Q_ROUTE } from './constants';
 import { prefetchRoute } from './prefetch-route';
 import {
   ContentContext,
@@ -37,6 +35,7 @@ import {
   DocumentHeadContext,
   HttpStatusContext,
   RouteActionContext,
+  RouteLoaderCtxContext,
   RouteLocationContext,
   RouteNavigateContext,
   RoutePreventNavigateContext,
@@ -53,6 +52,7 @@ import {
   saveScrollHistory,
 } from './scroll-restoration';
 import spaInit from './spa-init';
+import { ensureRouteLoaderSignals, updateRouteLoaderCtx } from './route-loaders';
 import type {
   Action,
   ActionInternal,
@@ -78,7 +78,7 @@ import type {
 } from './types';
 import { loadClientData } from './use-endpoint';
 import { useQwikRouterEnv } from './use-functions';
-import { createLoaderSignal, isSameOrigin, isSamePath, toPath, toUrl } from './utils';
+import { isSameOrigin, isSamePath, toPath, toUrl } from './utils';
 import { startViewTransition } from './view-transition';
 
 declare const window: ClientSPAWindow;
@@ -168,43 +168,13 @@ export const useQwikRouter = (props?: QwikRouterProps) => {
   };
   const routeLocation = useStore<MutableRouteLocation>(routeLocationTarget, { deep: false });
   const navResolver: { r?: () => void } = {};
-  const container = _getContextContainer();
-  const getSerializationStrategy = (loaderId: string): SerializationStrategy => {
-    return (
-      env.response.loadersSerializationStrategy.get(loaderId) ||
-      DEFAULT_LOADERS_SERIALIZATION_STRATEGY
-    );
-  };
-
-  // On server this object contains the all the loaders data
-  // On client after resuming this object contains only keys and _UNINITIALIZED as values
-  // Thanks to this we can use this object as a capture ref and not to serialize unneeded data
-  // While resolving the loaders we will override the _UNINITIALIZED with the actual data
-  const loadersObject: Record<string, unknown> = {};
-
-  // This object contains the signals for the loaders
-  // It is used for the loaders context RouteStateContext
-  const loaderState: Record<string, AsyncSignal<unknown>> = {};
-
-  for (const [key, value] of Object.entries(env.response.loaders)) {
-    loadersObject[key] = value;
-    loaderState[key] = createLoaderSignal(
-      loadersObject,
-      key,
-      url,
-      getSerializationStrategy(key),
-      manifestHash,
-      container
-    );
-  }
-  // Serialize it as keys and _UNINITIALIZED as values
-  (loadersObject as any)[SerializerSymbol] = (obj: Record<string, unknown>) => {
-    const loadersSerializationObject: Record<string, unknown> = {};
-    for (const [k, v] of Object.entries(obj)) {
-      loadersSerializationObject[k] = getSerializationStrategy(k) === 'always' ? v : _UNINITIALIZED;
-    }
-    return loadersSerializationObject;
-  };
+  // loaderState and routeLoaderCtx come from middleware via serverData
+  const loaderState = env.loaderState;
+  // Set manifestHash here since it's not available during middleware execution
+  env.routeLoaderCtx.manifestHash = manifestHash || '';
+  env.routeLoaderCtx.pageUrl = url.href;
+  // deep: true so that changes to loaderPaths properties are tracked
+  const routeLoaderCtx = useStore(env.routeLoaderCtx);
 
   // The initial state of routeInternal uses the URL provided by the server environment.
   // It may not be accurate to the actual URL the browser is accessing the site from.
@@ -233,7 +203,7 @@ export const useQwikRouter = (props?: QwikRouterProps) => {
   });
 
   const currentActionId = env.response.action;
-  const currentAction = currentActionId ? env.response.loaders[currentActionId] : undefined;
+  const currentAction = currentActionId ? env.response.actionResult : undefined;
   const actionState = useSignal<RouteActionValue>(
     currentAction
       ? {
@@ -433,6 +403,7 @@ export const useQwikRouter = (props?: QwikRouterProps) => {
   useContextProvider(RouteLocationContext, routeLocation);
   useContextProvider(RouteNavigateContext, goto);
   useContextProvider(RouteStateContext, loaderState);
+  useContextProvider(RouteLoaderCtxContext, routeLoaderCtx);
   useContextProvider(RouteActionContext, actionState);
   useContextProvider<any>(RoutePreventNavigateContext, registerPreventNav);
 
@@ -466,7 +437,7 @@ export const useQwikRouter = (props?: QwikRouterProps) => {
         } else if (!globalThis.__NO_TRAILING_SLASH__) {
           trackUrl.pathname += '/';
         }
-        let loadRoutePromise = loadRoute(
+        const loadRoutePromise = loadRoute(
           qwikRouterConfig.routes,
           qwikRouterConfig.cacheModules,
           trackUrl.pathname
@@ -495,16 +466,22 @@ export const useQwikRouter = (props?: QwikRouterProps) => {
         }
 
         // Resolve action if one was submitted
-        if (action?.resolve && pageData.loaders[action.id] !== undefined) {
+        if (action?.resolve) {
           action.resolve({
             status: pageData.status,
-            result: pageData.loaders[action.id],
+            result: pageData.actionResult,
           });
         }
       }
 
       const { $routeName$, $params$, $mods$, $menu$, $notFound$ } = loadedRoute;
       const contentModules = $mods$ as ContentModule[];
+      // Update the reactive loader context so AsyncSignals re-fetch if paths changed
+      updateRouteLoaderCtx(routeLoaderCtx, loadedRoute.$loaderPaths$, trackUrl.href);
+      const routeLoaders = ensureRouteLoaderSignals(contentModules, loaderState, routeLoaderCtx);
+      if (routeLoaders.length > 0) {
+        await Promise.all(routeLoaders.map((loader) => loaderState[loader.__id].promise()));
+      }
 
       // Update httpStatus for 404/error pages
       if ($notFound$) {
@@ -551,6 +528,7 @@ export const useQwikRouter = (props?: QwikRouterProps) => {
       // Needs to be done after routeLocation is updated
       const resolvedHead = resolveHead(
         clientPageData!,
+        loaderState,
         routeLocation,
         contentModules,
         locale,
@@ -589,33 +567,9 @@ export const useQwikRouter = (props?: QwikRouterProps) => {
             restoreScroll(navType, trackUrl, prevUrl, scroller, scrollState);
         }
 
-        const loaders = clientPageData?.loaders;
-        if (loaders) {
-          for (const [key, value] of Object.entries(loaders)) {
-            const signal = loaderState[key];
-            const awaitedValue = await value;
-            loadersObject[key] = awaitedValue;
-            if (!signal) {
-              loaderState[key] = createLoaderSignal(
-                loadersObject,
-                key,
-                trackUrl,
-                DEFAULT_LOADERS_SERIALIZATION_STRATEGY,
-                manifestHash,
-                container
-              );
-            } else {
-              signal.invalidate();
-            }
-          }
-          // remove not existing loaders
-          for (const key of Object.keys(loaderState)) {
-            if (!(key in loaders)) {
-              delete loaderState[key];
-            }
-          }
+        for (const hash of clientPageData?.loaderHashes ?? []) {
+          loaderState[hash]?.invalidate(true);
         }
-        LOADER_CACHE.clear();
 
         // See also spa-init.ts
         if (!window._qRouterSPA) {
@@ -960,7 +914,10 @@ const useQwikMockRouter = (props: QwikRouterMockProps) => {
     },
     {} as Record<string, QwikRouterMockLoaderProp['data']>
   );
-  const loaderState = useStore(loadersData ?? {}, { deep: false });
+  const loaderState = useStore<Record<string, AsyncSignal<unknown>>>({}, { deep: false });
+  for (const [loaderId, data] of Object.entries(loadersData ?? {})) {
+    loaderState[loaderId] ||= createAsync$(async () => data, { initial: data });
+  }
 
   const goto: RouteNavigate =
     props.goto ??

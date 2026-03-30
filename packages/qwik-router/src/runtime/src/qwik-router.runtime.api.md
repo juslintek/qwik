@@ -5,6 +5,7 @@
 ```ts
 
 import type { AsyncSignal } from '@qwik.dev/core';
+import { AsyncSignal as AsyncSignal_2 } from '@qwik.dev/core/internal';
 import { Component } from '@qwik.dev/core';
 import { Cookie } from '@qwik.dev/router/middleware/request-handler';
 import { CookieOptions } from '@qwik.dev/router/middleware/request-handler';
@@ -354,11 +355,17 @@ export interface QwikRouterEnvData {
     // (undocumented)
     loadedRoute: LoadedRoute;
     // (undocumented)
+    loaderState: Record<string, AsyncSignal_2<unknown>>;
+    // (undocumented)
     params: PathParams;
     // Warning: (ae-forgotten-export) The symbol "EndpointResponse" needs to be exported by the entry point index.d.ts
     //
     // (undocumented)
     response: EndpointResponse;
+    // Warning: (ae-forgotten-export) The symbol "RouteLoaderCtx" needs to be exported by the entry point index.d.ts
+    //
+    // (undocumented)
+    routeLoaderCtx: RouteLoaderCtx;
     // (undocumented)
     routeName: string;
 }

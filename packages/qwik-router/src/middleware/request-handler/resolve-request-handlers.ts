@@ -9,11 +9,8 @@ import {
   RequestEvShareServerTiming,
   RequestEvSharedActionId,
   RequestRouteName,
-  getRequestLoaderSerializationStrategyMap,
-  getRequestLoaders,
   getRequestMode,
 } from './request-event-core';
-import { getRouteLoaderPromise } from './request-loader';
 import { getQwikRouterServerData } from './response-page';
 import { createResolveRequestHandlers } from './resolve-request-handlers-core';
 import { RedirectMessage } from './redirect-handler';
@@ -36,10 +33,7 @@ const requestHandlers = createResolveRequestHandlers({
   isContentType,
   getCachedHtml,
   getQwikRouterServerData,
-  getRequestLoaderSerializationStrategyMap,
-  getRequestLoaders,
   getRequestMode,
-  getRouteLoaderPromise,
   loadHttpError: () => import('../../runtime/src/http-error'),
   MAX_CACHE_SIZE,
   resolveCacheKey,

@@ -415,23 +415,30 @@ export interface LoadedRoute {
   $errorLoader$?: ContentModuleLoader;
   /** Merged array of routeLoader$ hashes from all matched nodes (layouts + page) */
   $loaders$?: string[];
+  /** Runtime-only mapping of routeLoader$ hashes to the matched pathname used for q-loader fetches */
+  $loaderPaths$?: Record<string, string>;
 }
 
 export interface EndpointResponse {
   status: number;
   statusMessage?: string;
-  loaders: Record<string, unknown>;
-  loadersSerializationStrategy: Map<string, SerializationStrategy>;
   formData?: FormData;
   action?: string;
+  actionResult?: unknown;
+  /** @deprecated Loader data is now in AsyncSignals via RouteStateContext */
+  loaders?: Record<string, unknown>;
+  /** @deprecated No longer needed */
+  loadersSerializationStrategy?: Map<string, SerializationStrategy>;
+  loaderHashes?: string[];
 }
 
-export interface ClientPageData extends Omit<EndpointResponse, 'loadersSerializationStrategy'> {
+export interface ClientPageData {
+  status: number;
   href: string;
-}
-
-export interface LoaderData {
   loaders: Record<string, unknown>;
+  action?: string;
+  actionResult?: unknown;
+  loaderHashes?: string[];
 }
 
 /** @public */
@@ -455,6 +462,8 @@ export interface QwikRouterEnvData {
   params: PathParams;
   response: EndpointResponse;
   loadedRoute: LoadedRoute;
+  loaderState: Record<string, import('@qwik.dev/core/internal').AsyncSignal<unknown>>;
+  routeLoaderCtx: import('./route-loaders').RouteLoaderCtx;
 }
 
 /** @public The server data that is provided by Qwik Router during SSR rendering. It can be retrieved with `useServerData(key)` in the server, but it is not available in the client. */

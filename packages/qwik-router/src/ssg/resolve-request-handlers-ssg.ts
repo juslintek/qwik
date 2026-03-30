@@ -8,8 +8,6 @@ import {
 } from '@qwik-router-ssg-worker/middleware/request-handler/etag';
 import { HttpStatus } from '@qwik-router-ssg-worker/middleware/request-handler/http-status-codes';
 import {
-  getRequestLoaderSerializationStrategyMap,
-  getRequestLoaders,
   getRequestMode,
   RequestEvETagCacheKey,
   RequestEvHttpStatusMessage,
@@ -18,7 +16,6 @@ import {
   RequestEvSharedActionId,
   RequestRouteName,
 } from '@qwik-router-ssg-worker/middleware/request-handler/request-event-core';
-import { getRouteLoaderPromise } from '@qwik-router-ssg-worker/middleware/request-handler/request-loader';
 import {
   encoder,
   isContentType,
@@ -44,10 +41,7 @@ const requestHandlers = createResolveRequestHandlers({
   isContentType,
   getCachedHtml,
   getQwikRouterServerData,
-  getRequestLoaderSerializationStrategyMap,
-  getRequestLoaders,
   getRequestMode,
-  getRouteLoaderPromise,
   loadHttpError: () => import('../runtime/src/http-error'),
   MAX_CACHE_SIZE,
   resolveCacheKey,

@@ -16,7 +16,6 @@ import type { RenderOptions } from '@qwik.dev/core/server';
 import { RequestEvent as RequestEvent_2 } from '@qwik.dev/router/middleware/request-handler';
 import type { RequestHandler as RequestHandler_2 } from '@qwik.dev/router/middleware/request-handler';
 import type { ResolveSyncValue as ResolveSyncValue_2 } from '@qwik.dev/router/middleware/request-handler';
-import { SerializationStrategy } from '@qwik.dev/core/internal';
 import type { ValueOrPromise } from '@qwik.dev/core';
 
 // @public (undocumented)
